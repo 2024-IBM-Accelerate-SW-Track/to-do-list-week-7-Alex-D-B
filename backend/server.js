@@ -6,8 +6,15 @@ const bodyParser = require('body-parser');
 const fsPromises = require("fs").promises;
 //const fs = require("fs");
 const todoDBName = "tododb";
-const useCloudant = true;
+const useCloudant = false;
 
+const basicAuth = require('express-basic-auth');
+var { authenticator, upsertUser, cookieAuth } = require('./authentication');
+const auth = basicAuth({
+  authorizer: authenticator
+});
+const cookieParser = require('cookie-parser');
+app.use(cookieParser('82e4e438a0705fabf61f9854e3b575af'));
 
 
 //Init code for Cloudant
@@ -18,19 +25,17 @@ if (useCloudant)
 }
 
 
-app.use(cors());
+app.use(cors({
+  credentials: true,
+  origin: 'http://localhost:3000'
+}));
 app.use(bodyParser.json({ extended: true }));
 
 app.listen(port, () => console.log("Backend server live on " + port));
 
-
-
 app.get("/", (request, response) => {
     response.send({ message: "Connected to Backend server!" });
 });
-
-//add new item to json file
-app.post("/add/item", addItem)
 
 async function addItem (request, response) {
     try {
@@ -81,9 +86,9 @@ async function addItem (request, response) {
         response.sendStatus(500)
     }
 }
+//add new item to json file
+app.post("/items", cookieAuth, addItem)
 
-//** week 6, get all items from the json database*/
-app.get("/get/items", getItems)
 async function getItems (request, response) {
     //begin here
 
@@ -107,9 +112,10 @@ async function getItems (request, response) {
     }
 
 };
+//** week 6, get all items from the json database*/
+app.get("/items", cookieAuth, getItems)
 
 //** week 6, search items service */
-app.get("/get/searchitem", searchItems) 
 async function searchItems (request, response) {
     //begin here
     var searchField = request.query.taskname;
@@ -136,6 +142,7 @@ async function searchItems (request, response) {
     response.json(returnData);
     }
 };
+app.get("/items/search", cookieAuth, searchItems) 
 
 
 // Add initDB function here
@@ -162,3 +169,21 @@ async function initDB ()
 
   }
 };
+
+app.get('/authenticate', auth, (req, res) => {
+  console.log(`user logging in: ${req.auth.user}`);
+  res.cookie('user', req.auth.user, { signed: true });
+  res.sendStatus(200);
+});
+
+app.post('/users', (req, res) => {
+  const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
+  const [username, password] = Buffer.from(b64auth, 'base64').toString().split(':');
+  const upsertSucceeded = upsertUser(username, password);
+  res.sendStatus(upsertSucceeded ? 200 : 401);
+});
+
+app.get('/logout', (req, res) => {
+  res.clearCookie('user');
+  res.end();
+});
